@@ -1,0 +1,501 @@
+#include <SFML/Graphics.hpp>
+#include <optional>
+#include <string>
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <cmath>
+
+constexpr float GRAVITY       = 2000.f;
+constexpr float JUMP_STRENGTH = -850.f;
+constexpr float PLAYER_SPEED  = 320.f;
+
+// ── High Score ───────────────────────────────────────────────────
+int loadHighScore(const std::string& path)
+{
+    std::ifstream f(path);
+    int hs = 0;
+    if (f.is_open()) f >> hs;
+    return hs;
+}
+void saveHighScore(const std::string& path, int hs)
+{
+    std::ofstream f(path);
+    if (f.is_open()) f << hs;
+}
+
+// ── Structs ──────────────────────────────────────────────────────
+struct Platform
+{
+    sf::RectangleShape shape;
+    Platform(float x, float y, float w, float h,
+             sf::Color col = sf::Color(34,139,34))
+    {
+        shape.setSize({w, h});
+        shape.setPosition({x, y});
+        shape.setFillColor(col);
+    }
+};
+
+struct Enemy
+{
+    sf::RectangleShape shape;
+    float speed, leftBound, rightBound;
+    bool  movingRight = false;
+    bool  alive       = true;
+
+    Enemy(float x, float y, float spd, float lb, float rb,
+          sf::Color col = sf::Color::Magenta)
+        : speed(spd), leftBound(lb), rightBound(rb)
+    {
+        shape.setSize({50.f, 50.f});
+        shape.setPosition({x, y});
+        shape.setFillColor(col);
+    }
+
+    void update(float dt)
+    {
+        if (!alive) return;
+        shape.move({(movingRight ? 1.f : -1.f) * speed * dt, 0.f});
+        if (shape.getPosition().x < leftBound)  movingRight = true;
+        if (shape.getPosition().x > rightBound) movingRight = false;
+    }
+};
+
+struct Coin
+{
+    sf::CircleShape shape;
+    bool collected = false;
+    Coin(float x, float y)
+    {
+        shape.setRadius(12.f);
+        shape.setFillColor(sf::Color::Yellow);
+        shape.setOutlineColor(sf::Color(200,150,0));
+        shape.setOutlineThickness(2.f);
+        shape.setPosition({x, y});
+    }
+};
+
+// ── Level Builder ────────────────────────────────────────────────
+struct LevelData
+{
+    sf::Color             skyColor;
+    std::vector<Platform> platforms;
+    std::vector<Enemy>    enemies;
+    std::vector<Coin>     coins;
+    sf::Vector2f          playerStart;
+    float                 groundY = 500.f;
+};
+
+LevelData buildLevel(int lvl)
+{
+    LevelData d;
+    d.playerStart = {80.f, 400.f};
+    d.groundY     = 500.f;
+
+    if (lvl == 1)
+    {
+        d.skyColor  = sf::Color(100,149,237);
+        d.platforms = {
+            Platform(200.f, 380.f, 150.f, 20.f),
+            Platform(420.f, 310.f, 150.f, 20.f),
+            Platform(620.f, 250.f, 150.f, 20.f),
+        };
+        d.enemies = {
+            Enemy(550.f, 450.f, 120.f, 450.f, 700.f),
+        };
+        d.coins = {
+            Coin(230.f,340.f), Coin(450.f,270.f),
+            Coin(650.f,210.f), Coin(350.f,460.f),
+        };
+    }
+    else if (lvl == 2)
+    {
+        d.skyColor  = sf::Color(50,80,150);
+        d.platforms = {
+            Platform(150.f,420.f,120.f,20.f,sf::Color(100,60,10)),
+            Platform(330.f,360.f,120.f,20.f,sf::Color(100,60,10)),
+            Platform(510.f,290.f,120.f,20.f,sf::Color(100,60,10)),
+            Platform(680.f,220.f,120.f,20.f,sf::Color(100,60,10)),
+        };
+        d.enemies = {
+            Enemy(400.f,450.f,160.f,300.f,650.f,sf::Color::Red),
+            Enemy(650.f,170.f,130.f,600.f,780.f,sf::Color(255,140,0)),
+        };
+        d.coins = {
+            Coin(160.f,380.f), Coin(340.f,320.f), Coin(520.f,250.f),
+            Coin(690.f,180.f), Coin(50.f, 460.f), Coin(730.f,460.f),
+        };
+    }
+    else
+    {
+        d.skyColor  = sf::Color(20,20,60);
+        d.platforms = {
+            Platform(120.f,440.f, 90.f,20.f,sf::Color(80,0,80)),
+            Platform(270.f,380.f, 90.f,20.f,sf::Color(80,0,80)),
+            Platform(420.f,310.f, 90.f,20.f,sf::Color(80,0,80)),
+            Platform(570.f,250.f, 90.f,20.f,sf::Color(80,0,80)),
+            Platform(680.f,180.f,100.f,20.f,sf::Color(80,0,80)),
+        };
+        d.enemies = {
+            Enemy(300.f,450.f,200.f,200.f,600.f,sf::Color::Red),
+            Enemy(550.f,200.f,180.f,500.f,770.f,sf::Color(255,100,0)),
+            Enemy(100.f,450.f,140.f, 50.f,250.f,sf::Color(200,0,200)),
+        };
+        d.coins = {
+            Coin(130.f,400.f), Coin(280.f,340.f), Coin(430.f,270.f),
+            Coin(580.f,210.f), Coin(690.f,140.f), Coin(50.f, 460.f),
+            Coin(750.f,460.f), Coin(400.f,460.f),
+        };
+    }
+    return d;
+}
+
+// ── Main ─────────────────────────────────────────────────────────
+int main()
+{
+    sf::RenderWindow window(sf::VideoMode({800,600}), "Mini Mario - Multi Level");
+    window.setFramerateLimit(60);
+
+    // ── Font declared at TOP LEVEL so all sf::Text can use it ───
+    sf::Font font;
+    bool hasFont = false;
+
+    if      (font.openFromFile("arial.ttf"))                                  hasFont = true;
+    else if (font.openFromFile("C:/Users/Dell/Desktop/arial-font/arial.ttf")) hasFont = true;
+    else if (font.openFromFile("C:/Windows/Fonts/arial.ttf"))                 hasFont = true;
+
+    if (!hasFont) std::cout << "[WARN] Font not found - scores will not display\n";
+    else          std::cout << "[OK] Font loaded successfully\n";
+
+    // ── Player ──────────────────────────────────────────────────
+    sf::Texture marioTex;
+    bool hasMarioSprite = marioTex.loadFromFile("mario.png");
+
+    sf::Sprite player(marioTex);
+    if (hasMarioSprite) player.setScale({0.15f, 0.15f});
+
+    sf::RectangleShape playerRect({40.f, 55.f});
+    playerRect.setFillColor(sf::Color::Red);
+
+    // ── High score ──────────────────────────────────────────────
+    const std::string HS_FILE = "highscore.txt";
+    int highScore = loadHighScore(HS_FILE);
+
+    // ── Game state ──────────────────────────────────────────────
+    enum class State { Playing, LevelClear, GameOver, Win };
+    State state    = State::Playing;
+    int   level    = 1;
+    int   score    = 0;
+    int   lives    = 3;
+    bool  onGround = false;
+    float velY     = 0.f;
+
+    LevelData curLevel = buildLevel(level);
+
+    auto resetPlayer = [&]()
+    {
+        sf::Vector2f sp = curLevel.playerStart;
+        if (hasMarioSprite) player.setPosition(sp);
+        else                playerRect.setPosition(sp);
+        velY     = 0.f;
+        onGround = false;
+    };
+    resetPlayer();
+
+    // ── Ground ──────────────────────────────────────────────────
+    sf::RectangleShape ground({800.f, 100.f});
+    ground.setFillColor(sf::Color(139,69,19));
+
+    // ── HUD Text (font must be declared before these!) ──────────
+    sf::Text scoreText(font);
+    scoreText.setCharacterSize(26);
+    scoreText.setFillColor(sf::Color::White);
+    scoreText.setPosition({10.f, 10.f});
+
+    sf::Text livesText(font);
+    livesText.setCharacterSize(26);
+    livesText.setFillColor(sf::Color::Yellow);
+    livesText.setPosition({10.f, 40.f});
+
+    sf::Text hsText(font);
+    hsText.setCharacterSize(26);
+    hsText.setFillColor(sf::Color::Cyan);
+    hsText.setPosition({10.f, 70.f});
+
+    sf::Text levelText(font);
+    levelText.setCharacterSize(26);
+    levelText.setFillColor(sf::Color::White);
+    levelText.setPosition({330.f, 10.f});
+
+    sf::Text messageText(font);
+    messageText.setCharacterSize(40);
+    messageText.setFillColor(sf::Color::White);
+    messageText.setPosition({100.f, 240.f});
+
+    sf::Text subText(font);
+    subText.setCharacterSize(24);
+    subText.setFillColor(sf::Color(200,200,200));
+    subText.setPosition({160.f, 300.f});
+
+    sf::RectangleShape msgBox({620.f, 140.f});
+    msgBox.setFillColor(sf::Color(0,0,0,160));
+    msgBox.setPosition({90.f, 220.f});
+
+    sf::Clock clock;
+
+    // ═══════════════════ GAME LOOP ═══════════════════════════════
+    while (window.isOpen())
+    {
+        float dt = clock.restart().asSeconds();
+        dt = std::min(dt, 0.05f);
+
+        // ── Events ──────────────────────────────────────────────
+        while (const std::optional ev = window.pollEvent())
+        {
+            if (ev->is<sf::Event::Closed>()) window.close();
+
+            if (const auto* kp = ev->getIf<sf::Event::KeyPressed>())
+            {
+                if (state != State::Playing)
+                {
+                    if (kp->scancode == sf::Keyboard::Scancode::Enter ||
+                        kp->scancode == sf::Keyboard::Scancode::Space)
+                    {
+                        if (state == State::LevelClear)
+                        {
+                            ++level;
+                            state    = State::Playing;
+                            curLevel = buildLevel(level);
+                            resetPlayer();
+                        }
+                        else
+                        {
+                            level    = 1;
+                            score    = 0;
+                            lives    = 3;
+                            state    = State::Playing;
+                            curLevel = buildLevel(level);
+                            resetPlayer();
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Update ──────────────────────────────────────────────
+        if (state == State::Playing)
+        {
+            // Horizontal
+            float moveX = 0.f;
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A) ||
+                sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left))  moveX -= 1.f;
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D) ||
+                sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Right)) moveX += 1.f;
+
+            if (hasMarioSprite) player.move({moveX * PLAYER_SPEED * dt, 0.f});
+            else                playerRect.move({moveX * PLAYER_SPEED * dt, 0.f});
+
+            // Clamp horizontal
+            {
+                sf::FloatRect pb = hasMarioSprite
+                    ? player.getGlobalBounds() : playerRect.getGlobalBounds();
+                if (pb.position.x < 0.f)
+                {
+                    if (hasMarioSprite) player.setPosition({0.f, pb.position.y});
+                    else                playerRect.setPosition({0.f, pb.position.y});
+                }
+                if (pb.position.x + pb.size.x > 800.f)
+                {
+                    if (hasMarioSprite) player.setPosition({800.f - pb.size.x, pb.position.y});
+                    else                playerRect.setPosition({800.f - pb.size.x, pb.position.y});
+                }
+            }
+
+            // Jump BEFORE gravity
+            if ((sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W)    ||
+                 sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Space) ||
+                 sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Up))   && onGround)
+            {
+                velY     = JUMP_STRENGTH;
+                onGround = false;
+            }
+
+            // Gravity
+            onGround = false;
+            velY    += GRAVITY * dt;
+            if (hasMarioSprite) player.move({0.f, velY * dt});
+            else                playerRect.move({0.f, velY * dt});
+
+            // Ground collision
+            ground.setPosition({0.f, curLevel.groundY});
+            {
+                sf::FloatRect pb = hasMarioSprite
+                    ? player.getGlobalBounds() : playerRect.getGlobalBounds();
+                if (pb.position.y + pb.size.y >= curLevel.groundY)
+                {
+                    float ny = curLevel.groundY - pb.size.y;
+                    if (hasMarioSprite) player.setPosition({pb.position.x, ny});
+                    else                playerRect.setPosition({pb.position.x, ny});
+                    velY     = 0.f;
+                    onGround = true;
+                }
+            }
+
+            // Platform collisions
+            for (auto& plat : curLevel.platforms)
+            {
+                sf::FloatRect pb = hasMarioSprite
+                    ? player.getGlobalBounds() : playerRect.getGlobalBounds();
+                sf::FloatRect pr = plat.shape.getGlobalBounds();
+                if (pb.findIntersection(pr))
+                {
+                    float playerBottom = pb.position.y + pb.size.y;
+                    float platTop      = pr.position.y;
+                    if (velY >= 0.f && playerBottom - velY * dt <= platTop + 5.f)
+                    {
+                        float ny = platTop - pb.size.y;
+                        if (hasMarioSprite) player.setPosition({pb.position.x, ny});
+                        else                playerRect.setPosition({pb.position.x, ny});
+                        velY     = 0.f;
+                        onGround = true;
+                    }
+                }
+            }
+
+            // Fall off screen
+            {
+                sf::FloatRect pb = hasMarioSprite
+                    ? player.getGlobalBounds() : playerRect.getGlobalBounds();
+                if (pb.position.y > 650.f)
+                {
+                    --lives;
+                    if (lives <= 0) state = State::GameOver;
+                    else            resetPlayer();
+                }
+            }
+
+            // Enemy update & collision
+            for (auto& en : curLevel.enemies)
+            {
+                if (!en.alive) continue;
+                en.update(dt);
+
+                sf::FloatRect pb = hasMarioSprite
+                    ? player.getGlobalBounds() : playerRect.getGlobalBounds();
+                sf::FloatRect eb = en.shape.getGlobalBounds();
+
+                if (pb.findIntersection(eb))
+                {
+                    float playerBottom = pb.position.y + pb.size.y;
+                    float enemyTop     = eb.position.y;
+                    if (velY > 0.f && playerBottom < enemyTop + 15.f)
+                    {
+                        en.alive = false;
+                        score   += 20;
+                        velY     = JUMP_STRENGTH * 0.6f;
+                    }
+                    else
+                    {
+                        --lives;
+                        if (lives <= 0) state = State::GameOver;
+                        else            resetPlayer();
+                        break;
+                    }
+                }
+            }
+
+            // Coin collection
+            {
+                sf::FloatRect pb = hasMarioSprite
+                    ? player.getGlobalBounds() : playerRect.getGlobalBounds();
+                for (auto& c : curLevel.coins)
+                    if (!c.collected && pb.findIntersection(c.shape.getGlobalBounds()))
+                    {
+                        c.collected = true;
+                        score      += 10;
+                    }
+            }
+
+            // Level clear
+            bool allCoins = true;
+            for (auto& c : curLevel.coins)
+                if (!c.collected) { allCoins = false; break; }
+
+            if (allCoins && state == State::Playing)
+            {
+                score += 50 * level;
+                if (level >= 3) state = State::Win;
+                else            state = State::LevelClear;
+            }
+
+            // Update high score
+            if (score > highScore)
+            {
+                highScore = score;
+                saveHighScore(HS_FILE, highScore);
+            }
+        }
+
+        // ── Render ──────────────────────────────────────────────
+        window.clear(curLevel.skyColor);
+        window.draw(ground);
+        for (auto& p  : curLevel.platforms) window.draw(p.shape);
+        for (auto& en : curLevel.enemies)   if (en.alive)      window.draw(en.shape);
+        for (auto& c  : curLevel.coins)     if (!c.collected)  window.draw(c.shape);
+        if (hasMarioSprite) window.draw(player);
+        else                window.draw(playerRect);
+
+        // HUD
+        if (hasFont)
+        {
+            scoreText.setString("Score: " + std::to_string(score));
+            livesText.setString("Lives: " + std::to_string(lives));
+            hsText.setString   ("Best:  " + std::to_string(highScore));
+            levelText.setString("Level " + std::to_string(level) + " / 3");
+            window.draw(scoreText);
+            window.draw(livesText);
+            window.draw(hsText);
+            window.draw(levelText);
+        }
+
+        // Overlay
+        if (state != State::Playing && hasFont)
+        {
+            window.draw(msgBox);
+            if (state == State::LevelClear)
+            {
+                messageText.setString("  Level " + std::to_string(level) + " Clear!");
+                messageText.setFillColor(sf::Color::Green);
+                subText.setString("Score: " + std::to_string(score) +
+                                  "   Best: " + std::to_string(highScore) +
+                                  "\n       [Enter] Next Level");
+            }
+            else if (state == State::GameOver)
+            {
+                messageText.setString("   GAME OVER");
+                messageText.setFillColor(sf::Color::Red);
+                subText.setString("Score: " + std::to_string(score) +
+                                  "   Best: " + std::to_string(highScore) +
+                                  "\n       [Enter] Restart");
+            }
+            else if (state == State::Win)
+            {
+                messageText.setString("   YOU WIN!");
+                messageText.setFillColor(sf::Color::Yellow);
+                subText.setString("Final: " + std::to_string(score) +
+                                  "   Best: " + std::to_string(highScore) +
+                                  "\n      [Enter] Play Again");
+            }
+            window.draw(messageText);
+            window.draw(subText);
+        }
+
+        window.display();
+    }
+
+    if (score > loadHighScore(HS_FILE))
+        saveHighScore(HS_FILE, score);
+
+    return 0;
+}
