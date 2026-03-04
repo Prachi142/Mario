@@ -1,0 +1,10 @@
+# depslib dependency file v1.0
+1772016588 source:c:\users\dell\desktop\sfml_test1\main.cpp
+	<SFML/Graphics.hpp>
+	<optional>
+	<string>
+	<iostream>
+	<fstream>
+	<vector>
+	<cmath>
+
