@@ -16,9 +16,9 @@ The game allows the player to move a character, interact with elements in the en
 **TECH STACK**
 
 * C++
-* SFML (Simple and Fast Multimedia Library)**
-* Object-Oriented Programming**
-* Basic Data Structures**
+* SFML (Simple and Fast Multimedia Library)
+* Object-Oriented Programming
+* Basic Data Structures
 
  **WHAT I LEARNED**
 
