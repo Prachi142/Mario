@@ -3,7 +3,7 @@
 This project is a simple 2D Mario-style game developed using **C++ and SFML**.
 The main goal of this project was to explore the basics of game development and understand how graphics, movement, and game logic work together in a real-time environment.
 
-The game allows the player to move a character, interact with elements in the environment, and experience basic gameplay mechanics similar to classic platform games.
+This game allows the player to move a character, interact with elements in the environment, and experience basic gameplay mechanics similar to classic platform games.
 
  **FEATURES**
 
